@@ -9,16 +9,15 @@ import win32api
 import win32con
 import traceback
 
-
 def bring_runelite_to_front_and_position():
     try:
         import pygetwindow
         win = None
         for w in pygetwindow.getAllWindows():
             if (
-                    w.title.startswith("RuneLite -")
-                    and "File Explorer" not in w.title
-                    and w.title.strip() != ""
+                w.title.startswith("RuneLite -")
+                and "File Explorer" not in w.title
+                and w.title.strip() != ""
             ):
                 win = w
                 break
@@ -31,56 +30,43 @@ def bring_runelite_to_front_and_position():
     except Exception:
         pass
 
-
 from pynput import keyboard as pynput_keyboard
 from pynput import mouse as pynput_mouse
 import math
 from collections import deque
 
-
 def debug(msg, always=False):
     if always or "--debug" in sys.argv:
         print(f"[DEBUG {time.strftime('%H:%M:%S')}] {msg}")
 
-
 debug("Run As Administrator For 100% Functionality", always=True)
-
 
 def rand_inv_click_delay():
     return random.uniform(0.021, 0.037)
 
-
 def rand_prayer_click_delay():
     return random.uniform(0.019, 0.032)
-
 
 def rand_tab_switch_delay():
     return random.uniform(0.021, 0.044)
 
-
 def rand_mouse_restore_delay(distance=0):
     return random.uniform(0.014, 0.030)
-
 
 def rand_gear_sleep():
     return 0.012 + random.uniform(0.005, 0.019)
 
-
 def rand_mouse_move_duration():
     return random.uniform(0.013, 0.026)
-
 
 def rand_spec_bar_wait():
     return random.uniform(0.024, 0.038)
 
-
 def rand_spec_bar_preclick():
     return random.uniform(0.016, 0.032)
 
-
 def rand_double_click_gap():
     return random.uniform(0.037, 0.082)
-
 
 OFFSET_MIN = -4
 OFFSET_MAX = 4
@@ -144,7 +130,6 @@ SWITCHER_HOTKEYS_PATH = os.environ.get("HOTKEYS_JSON", r"C:\Users\Admin\.runelit
 
 try:
     import psutil
-
     p = psutil.Process(os.getpid())
     p.nice(psutil.HIGH_PRIORITY_CLASS)
 except Exception:
@@ -176,7 +161,6 @@ queue_event = threading.Event()
 last_protection_prayer_requested = None
 last_protection_switch_attempt_tick = 0
 
-
 def get_bracket(equipment):
     global locked_bracket
     slot0 = equipment.get("0", {}).get("item_id", -1)
@@ -187,7 +171,6 @@ def get_bracket(equipment):
             locked_bracket = BRACKET_MAP.get(slot0, "max")
         return locked_bracket
 
-
 def prayer_active(prayer_name, prayers):
     query = str(prayer_name).lower().strip()
     for p in prayers:
@@ -196,24 +179,19 @@ def prayer_active(prayer_name, prayers):
             return True
     return False
 
-
 def random_offset():
     return random.randint(OFFSET_MIN, OFFSET_MAX)
 
-
 def antiban_offset(amount=5):
     return (random.randint(-amount, amount), random.randint(-amount, amount))
-
 
 def calculate_distance(pos1, pos2):
     if not pos1 or not pos2:
         return float('inf')
     return abs(pos1.get('x', 0) - pos2.get('x', 0)) + abs(pos1.get('y', 0) - pos2.get('y', 0))
 
-
 def is_halberd_weapon(weapon_id):
     return weapon_id in HALBERD_WEAPON_IDS
-
 
 def is_in_melee_range(player_pos, opponent_pos, opponent_weapon_id):
     distance = calculate_distance(player_pos, opponent_pos)
@@ -222,11 +200,9 @@ def is_in_melee_range(player_pos, opponent_pos, opponent_weapon_id):
     else:
         return distance <= STANDARD_MELEE_RANGE
 
-
 def get_equipped_weapon_id(equipment):
     weapon_slot = equipment.get("3", {})
     return weapon_slot.get("item_id", -1)
-
 
 def bezier_curve(p0, p1, p2, p3, t):
     omt = 1 - t
@@ -238,7 +214,6 @@ def bezier_curve(p0, p1, p2, p3, t):
         omt3 * p0[0] + 3 * omt2 * t * p1[0] + 3 * omt * t2 * p2[0] + t3 * p3[0],
         omt3 * p0[1] + 3 * omt2 * t * p1[1] + 3 * omt * t2 * p2[1] + t3 * p3[1],
     )
-
 
 def move_mouse_bezier(
         x, y,
@@ -288,14 +263,12 @@ def move_mouse_bezier(
                 time.sleep(remain / 2)
     win32api.SetCursorPos((x, y))
 
-
 def fast_click(stop_event=None, context=""):
     if stop_event and stop_event.is_set():
         debug(f"fast_click interrupted {context}", always=True)
         return
     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0)
     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTUP, 0, 0)
-
 
 def fast_move_and_click(x, y, delay=None, stop_event=None, jitter=BEZIER_JITTER, context=""):
     if stop_event and stop_event.is_set():
@@ -332,7 +305,6 @@ def fast_move_and_click(x, y, delay=None, stop_event=None, jitter=BEZIER_JITTER,
     except Exception:
         pass
 
-
 def switch_tab(tab_name, stop_event=None):
     if stop_event and stop_event.is_set():
         debug(f"switch_tab interrupted before tab {tab_name}", always=True)
@@ -351,7 +323,6 @@ def switch_tab(tab_name, stop_event=None):
         move_mouse_bezier(cur[0], cur[1], total_duration=rand_tab_switch_delay(), steps=2, jitter=1,
                           stop_event=stop_event, context=f"switch_tab {tab_name}")
 
-
 def ultra_accurate_sleep(secs, stop_event=None, context=""):
     target = time.perf_counter() + secs
     while True:
@@ -366,7 +337,6 @@ def ultra_accurate_sleep(secs, stop_event=None, context=""):
             continue
         time.sleep(remain / 2)
 
-
 def get_protect_prayer_coords(prayer_name):
     try:
         coords = COORDS_MAP["prayers"].get(prayer_name)
@@ -375,7 +345,6 @@ def get_protect_prayer_coords(prayer_name):
     except Exception:
         pass
     return None
-
 
 def switch_gear(wanted_items, inventory, equipment, stop_event=None, skip_defender=False):
     equipped_ids = {v['item_id'] for v in equipment.values()}
@@ -452,7 +421,6 @@ def switch_gear(wanted_items, inventory, equipment, stop_event=None, skip_defend
                     click_inventory_slot(coords['x'], coords['y'], context=f"gear {item_id} (weapon-last)")
                 break
 
-
 def get_current_protection_prayer():
     state = game_state.get()
     prayers = state["prayers"]
@@ -461,7 +429,6 @@ def get_current_protection_prayer():
         if prayer_active(prot, prayers):
             return prot
     return None
-
 
 def switch_prayers(prayer_names, prayers, stop_event=None, protection_prayer=None):
     if prayer_names is None:
@@ -476,8 +443,7 @@ def switch_prayers(prayer_names, prayers, stop_event=None, protection_prayer=Non
         current_protection = get_current_protection_prayer()
         if current_protection != protection_prayer:
             need_protection_switch = True
-            debug(f"[Prayer Switch] Protection switch needed: '{current_protection}' -> '{protection_prayer}'",
-                  always=True)
+            debug(f"[Prayer Switch] Protection switch needed: '{current_protection}' -> '{protection_prayer}'", always=True)
         else:
             debug(f"[Prayer Switch] Protection prayer '{protection_prayer}' already active, skipping", always=True)
     else:
@@ -515,7 +481,6 @@ def switch_prayers(prayer_names, prayers, stop_event=None, protection_prayer=Non
     finally:
         set_prayer_tab_protection(False)
 
-
 def standalone_protection_switch(protection_prayer, restore_mouse_pos=True):
     orig_mouse = win32api.GetCursorPos() if restore_mouse_pos else None
     try:
@@ -532,7 +497,6 @@ def standalone_protection_switch(protection_prayer, restore_mouse_pos=True):
     except Exception as e:
         debug(f"[Standalone] Error in protection switch: {e}", always=True)
 
-
 def cast_spell(spell_name, widget_state, stop_event=None):
     switch_tab("spellbook", stop_event=stop_event)
     coords = COORDS_MAP["spells"].get(spell_name)
@@ -540,7 +504,6 @@ def cast_spell(spell_name, widget_state, stop_event=None):
         ultra_accurate_sleep(0.013 + random.uniform(0.006, 0.019), stop_event=stop_event)
         fast_move_and_click(coords['x'], coords['y'], delay=rand_mouse_move_duration(), stop_event=stop_event,
                             context=f"spell {spell_name}")
-
 
 def click_spec_bar(stop_event=None):
     bar = COORDS_MAP["spec_bar"]
@@ -551,7 +514,6 @@ def click_spec_bar(stop_event=None):
     move_mouse_bezier(x, y, total_duration=rand_mouse_move_duration(), steps=BEZIER_STEPS // 2, jitter=BEZIER_JITTER)
     ultra_accurate_sleep(0.011 + random.uniform(0, 0.005))
     fast_click()
-
 
 class GameState:
     def __init__(self):
@@ -637,7 +599,6 @@ class GameState:
                 "player_world_position": self.player_world_position
             }
 
-
 game_state = GameState()
 
 auto_protect_enabled = False
@@ -648,8 +609,7 @@ prayer_tab_protection_active = False
 prayer_tab_protection_lock = threading.Lock()
 
 last_protection_switch_time = 0
-protection_switch_throttle = 0.6
-
+protection_switch_throttle = 0.1
 
 def toggle_auto_protect():
     global auto_protect_enabled
@@ -657,34 +617,28 @@ def toggle_auto_protect():
         auto_protect_enabled = not auto_protect_enabled
         debug(f"[Click Block] Auto-protection toggled to {'ON' if auto_protect_enabled else 'OFF'}", always=True)
 
-
 def set_prayer_tab_protection(active):
     global prayer_tab_protection_active
     with prayer_tab_protection_lock:
         prayer_tab_protection_active = active
         debug(f"[Click Block] Prayer tab protection {'ENABLED' if active else 'DISABLED'}", always=True)
 
-
 def is_prayer_tab_protected():
     with prayer_tab_protection_lock:
         return prayer_tab_protection_active
-
 
 def is_auto_protect_enabled():
     with auto_protect_lock:
         return auto_protect_enabled
 
-
 def is_hotkey_sequence_active():
     with hotkey_sequence_lock:
         return hotkey_sequence_active
-
 
 def set_hotkey_sequence_active(active):
     global hotkey_sequence_active
     with hotkey_sequence_lock:
         hotkey_sequence_active = active
-
 
 def should_block_prayer_clicks():
     if is_auto_protect_enabled():
@@ -692,7 +646,6 @@ def should_block_prayer_clicks():
     if is_prayer_tab_protected():
         return True
     return False
-
 
 def get_recommended_protection_prayer():
     if not is_auto_protect_enabled():
@@ -721,8 +674,8 @@ def get_recommended_protection_prayer():
                 return None
     return prayer_to_activate
 
-
 def standalone_protection_thread():
+
     global last_protection_switch_time, last_protection_prayer_requested, last_protection_switch_attempt_tick
 
     while True:
@@ -741,21 +694,21 @@ def standalone_protection_thread():
 
         # Don't repeat the same prayer switch if it's already pending
         if (
-                recommended_prayer == last_protection_prayer_requested and
-                tick == last_protection_switch_attempt_tick and
-                current_protection != recommended_prayer
+            recommended_prayer == last_protection_prayer_requested and
+            tick == last_protection_switch_attempt_tick and
+            current_protection != recommended_prayer
         ):
             debug(f"[Click Block] Duplicate switch blocked for prayer '{recommended_prayer}'", always=True)
             continue
 
         if current_protection != recommended_prayer:
             if current_time - last_protection_switch_time > protection_switch_throttle:
-                debug(f"[Click Block] Switching protection: '{{current_protection}}' -> '{{recommended_prayer}}'",
-                      always=True)
+                debug(f"[Click Block] Switching protection: '{{current_protection}}' -> '{{recommended_prayer}}'", always=True)
                 queue_script_action(lambda: standalone_protection_switch(recommended_prayer, restore_mouse_pos=True))
                 last_protection_prayer_requested = recommended_prayer
                 last_protection_switch_attempt_tick = tick
                 last_protection_switch_time = current_time
+def on_mouse_click(x, y, button, pressed):
     state = game_state.get()
     current_tab = state.get("tab")
     if pressed and button == pynput_mouse.Button.left and current_tab == "prayer" and is_auto_protect_enabled():
@@ -768,11 +721,11 @@ def standalone_protection_thread():
         state = game_state.get()
         current_tab = state.get("tab")
         # Block all clicks on prayer/inventory tabs if script action is running
-        if (current_tab == "prayer" or current_tab == "inventory") and (
-                should_block_prayer_clicks() or is_action_locked()):
-            debug(f"[Click Block] COMPLETELY BLOCKED mouse click at ({x}, {y}) - protection active or script switching",
-                  always=True)
+        if (current_tab == "prayer" or current_tab == "inventory") and (should_block_prayer_clicks() or is_action_locked()):
+            debug(f"[Click Block] COMPLETELY BLOCKED mouse click at ({x}, {y}) - protection active or script switching", always=True)
             return
+
+def prayer_tab_blocking_thread():
 
     consecutive_blocks = 0
     while True:
@@ -791,19 +744,17 @@ def standalone_protection_thread():
         except Exception as e:
             debug(f"[Click Block] Error in prayer_tab_blocking_thread: {e}", always=True)
             time.sleep(0.1)
+def mouse_click_listener_thread():
     with pynput_mouse.Listener(on_click=on_mouse_click) as listener:
         listener.join()
-
 
 def is_action_locked():
     locked = action_lock.locked()
     return locked
 
-
 def queue_script_action(func):
     action_queue.append(func)
     queue_event.set()
-
 
 def action_queue_thread():
     while True:
@@ -817,7 +768,6 @@ def action_queue_thread():
                     debug(f"[Action Queue] Exception in queued action: {e}\n{traceback.format_exc()}", always=True)
         queue_event.clear()
 
-
 def ws_listener():
     while True:
         try:
@@ -830,38 +780,30 @@ def ws_listener():
             debug(f"WS connection error: {err}. Reconnecting in 2s.", always=True)
             time.sleep(2)
 
-
 def watchdog_thread():
     while True:
         time.sleep(3)
-
 
 def hang_detection_thread():
     while True:
         time.sleep(5)
         with hotkey_lock:
             if current_switch_thread and current_switch_thread.is_alive():
-                debug(f"[HANG DETECTION] Switch thread {current_switch_thread.ident} has been alive for more than 5s!",
-                      always=True)
-
+                debug(f"[HANG DETECTION] Switch thread {current_switch_thread.ident} has been alive for more than 5s!", always=True)
 
 hotkey_lock = threading.Lock()
 current_switch_thread = None
 current_stop_event = None
-
 
 def user_eat_action(inv_slot):
     def do_eat():
         coords = COORDS_MAP["inventory"].get(str(inv_slot))
         if coords:
             fast_move_and_click(coords['x'], coords['y'], delay=rand_inv_click_delay())
-
     queue_script_action(do_eat)
-
 
 def run_switch(hotkey, stop_event):
     global last_f11_time
-
     def do_switch():
         try:
             set_hotkey_sequence_active(True)
@@ -926,8 +868,7 @@ def run_switch(hotkey, stop_event):
                 has_mages_book = any(slot.get("item_id") == MAGES_BOOK_ID for slot in inventory.values()) \
                                  or any(slot.get("item_id") == MAGES_BOOK_ID for slot in equipment.values())
                 if has_mages_book:
-                    wanted_items = [item for item in wanted_items if
-                                    item["id"] not in (SPIRIT_SHIELD_ID, UNHOLY_BOOK_ID)]
+                    wanted_items = [item for item in wanted_items if item["id"] not in (SPIRIT_SHIELD_ID, UNHOLY_BOOK_ID)]
                     if not any(item["id"] == MAGES_BOOK_ID for item in wanted_items):
                         wanted_items.append({"id": MAGES_BOOK_ID})
                 skip_defender = False
@@ -955,11 +896,9 @@ def run_switch(hotkey, stop_event):
                 spec_weapon_already_equipped = current_weapon_id in target_spec_weapon_ids
 
                 if spec_weapon_already_equipped:
-                    debug(f"[F10 Enhanced] Spec weapon {current_weapon_id} already equipped, skipping gear switch",
-                          always=True)
+                    debug(f"[F10 Enhanced] Spec weapon {current_weapon_id} already equipped, skipping gear switch", always=True)
                     has_dark_bow = any(slot.get("item_id") == DARK_BOW_ID for slot in inventory.values())
-                    prayers_for_bracket = PRAYER_LOGIC["rigour"][bracket] if has_dark_bow else PRAYER_LOGIC["piety"][
-                        bracket]
+                    prayers_for_bracket = PRAYER_LOGIC["rigour"][bracket] if has_dark_bow else PRAYER_LOGIC["piety"][bracket]
                 else:
                     has_dark_bow = any(slot.get("item_id") == DARK_BOW_ID for slot in inventory.values())
                     if has_dark_bow:
@@ -1032,9 +971,7 @@ def run_switch(hotkey, stop_event):
         finally:
             stop_event.set()
             set_hotkey_sequence_active(False)
-
     queue_script_action(do_switch)
-
 
 def on_press(key):
     try:
@@ -1070,9 +1007,8 @@ def on_press(key):
     except Exception as e:
         debug(f"Exception in on_press: {e}\n{traceback.format_exc()}", always=True)
 
-
 def main():
-    debug("RuneLite AutoSwitcher started. Press ESC to exit.", always=True)
+    debug("RuneLite AutoSwitcher started with COMPLETE Prayer Tab Click Blocking. Press ESC to exit.", always=True)
     debug("Features: Total click protection, zero prayer misclicks, seamless switching", always=True)
     debug("Press 'X' to toggle auto-protection ON/OFF", always=True)
     bring_runelite_to_front_and_position()
@@ -1080,11 +1016,11 @@ def main():
     threading.Thread(target=watchdog_thread, daemon=True).start()
     threading.Thread(target=hang_detection_thread, daemon=True).start()
     threading.Thread(target=standalone_protection_thread, daemon=True).start()
-
+    threading.Thread(target=mouse_click_listener_thread, daemon=True).start()
+    threading.Thread(target=prayer_tab_blocking_thread, daemon=True).start()
     threading.Thread(target=action_queue_thread, daemon=True).start()
     with pynput_keyboard.Listener(on_press=on_press) as listener:
         listener.join()
-
 
 if __name__ == '__main__':
     main()
