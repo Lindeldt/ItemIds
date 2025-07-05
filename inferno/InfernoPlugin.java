@@ -1,39 +1,19 @@
 package net.runelite.client.plugins.inferno;
 
 import com.google.inject.Provides;
-import net.runelite.client.plugins.kotoriutils.KotoriUtils;
-import net.runelite.client.plugins.kotoriutils.ReflectionLibrary;
-import net.runelite.client.plugins.kotoriutils.methods.MiscUtilities;
-import net.runelite.client.plugins.kotoriutils.methods.NPCInteractions;
-import net.runelite.client.game.NPCManager;
-import net.runelite.client.plugins.PrayAgainstPlayer.RecommendedPrayerChangedEvent;
-import net.runelite.client.eventbus.EventBus;
-import net.runelite.api.Prayer;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import javax.inject.Inject;
-import lombok.AccessLevel;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
-import net.runelite.api.ItemID;
 import net.runelite.api.NPC;
-import net.runelite.api.NpcID;
+import net.runelite.api.Prayer;
+import net.runelite.api.ChatMessageType;
 import net.runelite.api.coords.WorldPoint;
-import net.runelite.api.events.AnimationChanged;
-import net.runelite.api.events.ChatMessage;
-import net.runelite.api.events.GameStateChanged;
-import net.runelite.api.events.GameTick;
-import net.runelite.api.events.NpcDespawned;
-import net.runelite.api.events.NpcSpawned;
+import net.runelite.api.events.*;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.NPCManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
@@ -41,11 +21,19 @@ import net.runelite.client.plugins.inferno.displaymodes.InfernoPrayerDisplayMode
 import net.runelite.client.plugins.inferno.displaymodes.InfernoSafespotDisplayMode;
 import net.runelite.client.plugins.inferno.displaymodes.InfernoWaveDisplayMode;
 import net.runelite.client.plugins.inferno.displaymodes.InfernoZukShieldDisplayMode;
+import net.runelite.client.plugins.PrayAgainstPlayer.RecommendedPrayerChangedEvent;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
+import net.runelite.client.plugins.kotoriutils.methods.NPCInteractions;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
 
-@PluginDependency(KotoriUtils.class)
+import javax.inject.Inject;
+import java.util.*;
+
+@PluginDependency(net.runelite.client.plugins.kotoriutils.KotoriUtils.class)
 @PluginDescriptor(
 		name = "Inferno",
 		enabledByDefault = false,
@@ -73,8 +61,6 @@ public class InfernoPlugin extends Plugin
 	private InfernoWaveOverlay waveOverlay;
 	@Inject
 	private InfernoInfoBoxOverlay jadOverlay;
-	@Inject
-	private InfernoOverlay prayerOverlay;
 	@Inject
 	private InfernoConfig config;
 	@Inject
@@ -182,7 +168,6 @@ public class InfernoPlugin extends Plugin
 		overlayManager.remove(infernoOverlay);
 		overlayManager.remove(waveOverlay);
 		overlayManager.remove(jadOverlay);
-		overlayManager.remove(prayerOverlay);
 
 		if (spawnTimerInfoBox != null)
 		{
@@ -213,7 +198,6 @@ public class InfernoPlugin extends Plugin
 	{
 		overlayManager.add(infernoOverlay);
 		overlayManager.add(jadOverlay);
-		overlayManager.add(prayerOverlay);
 
 		if (config.waveDisplay() != InfernoWaveDisplayMode.NONE)
 		{
@@ -267,7 +251,7 @@ public class InfernoPlugin extends Plugin
 		Prayer advancedRecommendedPrayer = prayerRecommendation.recommendPrayer(
 				infernoNpcs, client, playerLoc, safeSpotMap
 		);
-		if (!java.util.Objects.equals(advancedRecommendedPrayer, attackToPrayer(closestAttack)))
+		if (!Objects.equals(advancedRecommendedPrayer, attackToPrayer(closestAttack)))
 		{
 			postPrayerRecommendation(advancedRecommendedPrayer);
 			closestAttack = advancedRecommendedPrayer == null ? null : inferAttackFromPrayer(advancedRecommendedPrayer);
@@ -347,7 +331,7 @@ public class InfernoPlugin extends Plugin
 
 		final int npcId = event.getNpc().getId();
 
-		if (npcId == NpcID.ANCESTRAL_GLYPH)
+		if (npcId == net.runelite.api.NpcID.ANCESTRAL_GLYPH)
 		{
 			zukShield = event.getNpc();
 			return;
@@ -388,7 +372,7 @@ public class InfernoPlugin extends Plugin
 						infoBoxManager.removeInfoBox(spawnTimerInfoBox);
 					}
 
-					spawnTimerInfoBox = new InfernoSpawnTimerInfobox(itemManager.getImage(ItemID.TZREKZUK), this);
+					spawnTimerInfoBox = new InfernoSpawnTimerInfobox(itemManager.getImage(net.runelite.api.ItemID.TZREKZUK), this);
 					infoBoxManager.addInfoBox(spawnTimerInfoBox);
 				}
 				break;
@@ -422,10 +406,10 @@ public class InfernoPlugin extends Plugin
 
 		switch (npcId)
 		{
-			case NpcID.ANCESTRAL_GLYPH:
+			case net.runelite.api.NpcID.ANCESTRAL_GLYPH:
 				zukShield = null;
 				return;
-			case NpcID.TZKALZUK:
+			case net.runelite.api.NpcID.TZKALZUK:
 				zuk = null;
 
 				if (spawnTimerInfoBox != null)
@@ -453,7 +437,7 @@ public class InfernoPlugin extends Plugin
 		if (event.getActor() instanceof NPC)
 		{
 			final NPC npc = (NPC) event.getActor();
-			int animationId = ReflectionLibrary.getNpcAnimationId(npc);
+			int animationId = net.runelite.client.plugins.kotoriutils.ReflectionLibrary.getNpcAnimationId(npc);
 
 			if (ArrayUtils.contains(InfernoNPC.Type.NIBBLER.getNpcIds(), npc.getId())
 					&& animationId == 7576)
@@ -490,7 +474,7 @@ public class InfernoPlugin extends Plugin
 	}
 
 	@Subscribe
-	private void onChatMessage(ChatMessage event)
+	private void onChatMessage(net.runelite.api.events.ChatMessage event)
 	{
 		if (!isInInferno() || event.getType() != ChatMessageType.GAMEMESSAGE)
 		{
@@ -508,7 +492,7 @@ public class InfernoPlugin extends Plugin
 
 	public boolean isInInferno()
 	{
-		return MiscUtilities.getPlayerRegionID() == INFERNO_REGION;
+		return net.runelite.client.plugins.kotoriutils.methods.MiscUtilities.getPlayerRegionID() == INFERNO_REGION;
 	}
 
 	public List<InfernoNPC> getInfernoNpcs()

@@ -19,29 +19,52 @@ import java.util.Set;
 /**
  * Advanced Inferno overlay: shows recommended prayer, timers, spawn locations,
  * optimal tile, 1-tick flick readiness, and debug info.
+ *
+ * No longer injects InfernoPlugin to avoid circular dependencies.
+ * State is set via public setters from InfernoPlugin before rendering.
  */
 @Slf4j
 public class InfernoOverlayAdvanced extends Overlay
 {
     private final Client client;
-    private final InfernoPlugin infernoPlugin;
     private final InfernoNpcPrediction npcPrediction;
     private final InfernoPrayerRecommendation prayerRecommendation;
     private final PanelComponent panelComponent = new PanelComponent();
 
+    // These are set by the plugin before each render
+    private List<InfernoNPC> infernoNpcs;
+    private Map<WorldPoint, Integer> safeSpotMap;
+    private boolean inInferno;
+    private boolean flickPossible;
+    private WorldPoint playerLoc;
+
     @Inject
     public InfernoOverlayAdvanced(
             Client client,
-            InfernoPlugin infernoPlugin,
             InfernoNpcPrediction npcPrediction,
             InfernoPrayerRecommendation prayerRecommendation
     )
     {
         this.client = client;
-        this.infernoPlugin = infernoPlugin;
         this.npcPrediction = npcPrediction;
         this.prayerRecommendation = prayerRecommendation;
         setPosition(OverlayPosition.TOP_LEFT);
+    }
+
+    // Setters to be called from InfernoPlugin before rendering
+    public void setGameState(
+            boolean inInferno,
+            boolean flickPossible,
+            WorldPoint playerLoc,
+            List<InfernoNPC> infernoNpcs,
+            Map<WorldPoint, Integer> safeSpotMap
+    )
+    {
+        this.inInferno = inInferno;
+        this.flickPossible = flickPossible;
+        this.playerLoc = playerLoc;
+        this.infernoNpcs = infernoNpcs;
+        this.safeSpotMap = safeSpotMap;
     }
 
     @Override
@@ -49,14 +72,11 @@ public class InfernoOverlayAdvanced extends Overlay
     {
         panelComponent.getChildren().clear();
 
-        if (!infernoPlugin.isInInferno() || client.getLocalPlayer() == null)
+        // Defensive: ensure state is set
+        if (!inInferno || client.getLocalPlayer() == null || infernoNpcs == null || safeSpotMap == null || playerLoc == null)
         {
             return null;
         }
-
-        WorldPoint playerLoc = client.getLocalPlayer().getWorldLocation();
-        List<InfernoNPC> infernoNpcs = infernoPlugin.getInfernoNpcs();
-        Map<WorldPoint, Integer> safeSpotMap = infernoPlugin.getSafeSpotMap();
 
         // Prayer recommendation
         Prayer recPrayer = prayerRecommendation.recommendPrayer(infernoNpcs, client, playerLoc, safeSpotMap);
@@ -68,8 +88,7 @@ public class InfernoOverlayAdvanced extends Overlay
                 .build());
 
         // 1-tick flick/overlay indicator
-        boolean flickable = infernoPlugin.isFlickPossible();
-        if (flickable)
+        if (flickPossible)
         {
             panelComponent.getChildren().add(TitleComponent.builder()
                     .text("Tick Flick: SAFE")
@@ -101,7 +120,7 @@ public class InfernoOverlayAdvanced extends Overlay
                 .build());
 
         // Show optimal tile
-        WorldPoint optimalTile = findOptimalTile(infernoNpcs, client, safeSpotMap, playerLoc);
+        WorldPoint optimalTile = findOptimalTile(safeSpotMap, playerLoc);
         if (optimalTile != null)
         {
             panelComponent.getChildren().add(TitleComponent.builder()
@@ -109,10 +128,6 @@ public class InfernoOverlayAdvanced extends Overlay
                     .color(Color.YELLOW)
                     .build());
         }
-
-        // Show spawn indicators (for next wave)
-        // (Stub: you would use your own spawn prediction logic/data)
-        // panelComponent.getChildren().add(...);
 
         // Debug (incoming attacks this tick)
         Set<InfernoNPC.Attack> incoming = prayerRecommendation.getIncomingAttacks(infernoNpcs, client, playerLoc);
@@ -135,7 +150,7 @@ public class InfernoOverlayAdvanced extends Overlay
      * Simple version: pick any tile in safeSpotMap with value 0 (true safespot).
      * More advanced: find tile with least incoming attacks (can extend as needed).
      */
-    private WorldPoint findOptimalTile(List<InfernoNPC> infernoNpcs, Client client, Map<WorldPoint, Integer> safeSpotMap, WorldPoint playerLoc)
+    private WorldPoint findOptimalTile(Map<WorldPoint, Integer> safeSpotMap, WorldPoint playerLoc)
     {
         if (safeSpotMap == null || safeSpotMap.isEmpty()) return null;
         for (Map.Entry<WorldPoint, Integer> entry : safeSpotMap.entrySet())
