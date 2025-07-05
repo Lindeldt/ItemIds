@@ -1,27 +1,3 @@
-/*
- * Copyright (c) 2019, Jacky <liangj97@gmail.com>
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- *    list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
 package net.runelite.client.plugins.inferno;
 
 import com.google.inject.Provides;
@@ -30,6 +6,9 @@ import net.runelite.client.plugins.kotoriutils.ReflectionLibrary;
 import net.runelite.client.plugins.kotoriutils.methods.MiscUtilities;
 import net.runelite.client.plugins.kotoriutils.methods.NPCInteractions;
 import net.runelite.client.game.NPCManager;
+import net.runelite.client.plugins.PrayAgainstPlayer.RecommendedPrayerChangedEvent;
+import net.runelite.client.eventbus.EventBus;
+import net.runelite.api.Prayer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -68,10 +47,10 @@ import org.apache.commons.lang3.ArrayUtils;
 
 @PluginDependency(KotoriUtils.class)
 @PluginDescriptor(
-	name = "Inferno",
-	enabledByDefault = false,
-	description = "Inferno helper",
-	tags = {"combat", "overlay", "pve", "pvm", "ported", "kotori"}
+		name = "Inferno",
+		enabledByDefault = false,
+		description = "Inferno helper with prayer automation integration",
+		tags = {"combat", "overlay", "pve", "pvm", "ported", "kotori", "prayer", "automation"}
 )
 @Slf4j
 public class InfernoPlugin extends Plugin
@@ -80,33 +59,26 @@ public class InfernoPlugin extends Plugin
 
 	@Inject
 	private Client client;
-
 	@Inject
 	private OverlayManager overlayManager;
-
 	@Inject
 	private InfoBoxManager infoBoxManager;
-
 	@Inject
 	private ItemManager itemManager;
-
 	@Inject
 	private NPCManager npcManager;
-
 	@Inject
 	private InfernoOverlay infernoOverlay;
-
 	@Inject
 	private InfernoWaveOverlay waveOverlay;
-
 	@Inject
 	private InfernoInfoBoxOverlay jadOverlay;
-
 	@Inject
 	private InfernoOverlay prayerOverlay;
-
 	@Inject
 	private InfernoConfig config;
+	@Inject
+	private EventBus eventBus;
 
 	@Getter(AccessLevel.PACKAGE)
 	private InfernoConfig.FontStyle fontStyle = InfernoConfig.FontStyle.BOLD;
@@ -139,7 +111,6 @@ public class InfernoPlugin extends Plugin
 	private WorldPoint zukShieldLastPosition = null;
 	private WorldPoint zukShieldBase = null;
 	private int zukShieldCornerTicks = -2;
-
 	private int zukShieldNegativeXCoord = -1;
 	private int zukShieldPositiveXCoord = -1;
 	private int zukShieldLastNonZeroDelta = 0;
@@ -149,14 +120,6 @@ public class InfernoPlugin extends Plugin
 	@Getter(AccessLevel.PACKAGE)
 	private InfernoNPC centralNibbler = null;
 
-	// 0 = total safespot
-	// 1 = pray melee
-	// 2 = pray range
-	// 3 = pray magic
-	// 4 = pray melee, range
-	// 5 = pray melee, magic
-	// 6 = pray range, magic
-	// 7 = pray all
 	@Getter(AccessLevel.PACKAGE)
 	private final Map<WorldPoint, Integer> safeSpotMap = new HashMap<>();
 	@Getter(AccessLevel.PACKAGE)
@@ -169,6 +132,10 @@ public class InfernoPlugin extends Plugin
 	private long lastTick;
 
 	private InfernoSpawnTimerInfobox spawnTimerInfoBox;
+	private InfernoNPC.Attack lastRecommendedAttack = null;
+
+	private InfernoNpcPrediction npcPrediction;
+	private InfernoPrayerRecommendation prayerRecommendation;
 
 	public static final int JAL_NIB = 7574;
 	public static final int JAL_MEJRAH = 7578;
@@ -186,7 +153,7 @@ public class InfernoPlugin extends Plugin
 	public static final int TZKAL_ZUK = 7566;
 
 	@Provides
-	InfernoConfig provideConfig(ConfigManager configManager)
+	public InfernoConfig provideConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(InfernoConfig.class);
 	}
@@ -198,11 +165,14 @@ public class InfernoPlugin extends Plugin
 		waveOverlay.setWaveHeaderColor(config.getWaveOverlayHeaderColor());
 		waveOverlay.setWaveTextColor(config.getWaveTextColor());
 
+		npcPrediction = new InfernoNpcPrediction();
+		prayerRecommendation = new InfernoPrayerRecommendation(npcPrediction);
+
 		if (client.getGameState() != GameState.LOGGED_IN || !isInInferno())
 		{
 			return;
 		}
-		
+
 		init();
 	}
 
@@ -219,7 +189,7 @@ public class InfernoPlugin extends Plugin
 			infoBoxManager.removeInfoBox(spawnTimerInfoBox);
 		}
 		spawnTimerInfoBox = null;
-		
+
 		infernoNpcs.clear();
 		upcomingAttacks.clear();
 		obstacles.clear();
@@ -234,14 +204,17 @@ public class InfernoPlugin extends Plugin
 		zukShieldLastPosition = null;
 		zukShieldBase = null;
 		closestAttack = null;
+		lastRecommendedAttack = null;
+
+		postPrayerRecommendation(null);
 	}
-	
+
 	private void init()
 	{
 		overlayManager.add(infernoOverlay);
 		overlayManager.add(jadOverlay);
 		overlayManager.add(prayerOverlay);
-		
+
 		if (config.waveDisplay() != InfernoWaveDisplayMode.NONE)
 		{
 			overlayManager.add(waveOverlay);
@@ -279,10 +252,27 @@ public class InfernoPlugin extends Plugin
 	{
 		if (!isInInferno())
 		{
+			if (lastRecommendedAttack != null)
+			{
+				postPrayerRecommendation(null);
+				lastRecommendedAttack = null;
+			}
 			return;
 		}
 
 		lastTick = System.currentTimeMillis();
+
+		WorldPoint playerLoc = client.getLocalPlayer().getWorldLocation();
+		npcPrediction.onGameTick(infernoNpcs, client, playerLoc);
+		Prayer advancedRecommendedPrayer = prayerRecommendation.recommendPrayer(
+				infernoNpcs, client, playerLoc, safeSpotMap
+		);
+		if (!java.util.Objects.equals(advancedRecommendedPrayer, attackToPrayer(closestAttack)))
+		{
+			postPrayerRecommendation(advancedRecommendedPrayer);
+			closestAttack = advancedRecommendedPrayer == null ? null : inferAttackFromPrayer(advancedRecommendedPrayer);
+			lastRecommendedAttack = closestAttack;
+		}
 
 		upcomingAttacks.clear();
 		calculateUpcomingAttacks();
@@ -306,7 +296,6 @@ public class InfernoPlugin extends Plugin
 
 		manageBlobDeathLocations();
 
-		//if finalPhaseTick, we will skip incrementing because we already did it in onNpcSpawned
 		if (finalPhaseTick)
 		{
 			finalPhaseTick = false;
@@ -315,6 +304,37 @@ public class InfernoPlugin extends Plugin
 		{
 			ticksSinceFinalPhase++;
 		}
+	}
+
+	private InfernoNPC.Attack inferAttackFromPrayer(Prayer prayer)
+	{
+		if (prayer == null) return null;
+		switch(prayer)
+		{
+			case PROTECT_FROM_MAGIC: return InfernoNPC.Attack.MAGIC;
+			case PROTECT_FROM_MISSILES: return InfernoNPC.Attack.RANGED;
+			case PROTECT_FROM_MELEE: return InfernoNPC.Attack.MELEE;
+			default: return null;
+		}
+	}
+
+	private Prayer attackToPrayer(InfernoNPC.Attack attack)
+	{
+		if (attack == null) return null;
+		switch (attack)
+		{
+			case MAGIC: return Prayer.PROTECT_FROM_MAGIC;
+			case RANGED: return Prayer.PROTECT_FROM_MISSILES;
+			case MELEE: return Prayer.PROTECT_FROM_MELEE;
+			default: return null;
+		}
+	}
+
+	private void postPrayerRecommendation(Prayer prayer)
+	{
+		String prayerName = prayer != null ? prayer.name().toLowerCase() : null;
+		RecommendedPrayerChangedEvent event = new RecommendedPrayerChangedEvent(prayerName);
+		eventBus.post(event);
 	}
 
 	@Subscribe
@@ -343,8 +363,6 @@ public class InfernoPlugin extends Plugin
 		switch (infernoNPCType)
 		{
 			case BLOB:
-				// Blobs need to be added to the end of the list because the prayer for their detection tick
-				// will be based on the upcoming attacks of other NPC's
 				infernoNpcs.add(new InfernoNPC(event.getNpc()));
 				return;
 			case MAGE:
@@ -438,20 +456,16 @@ public class InfernoPlugin extends Plugin
 			int animationId = ReflectionLibrary.getNpcAnimationId(npc);
 
 			if (ArrayUtils.contains(InfernoNPC.Type.NIBBLER.getNpcIds(), npc.getId())
-				&& animationId == 7576)
+					&& animationId == 7576)
 			{
 				infernoNpcs.removeIf(infernoNPC -> infernoNPC.getNpc() == npc);
 			}
-
 
 			if (config.indicateBlobDeathLocation() && InfernoNPC.Type.typeFromId(npc.getId()) == InfernoNPC.Type.BLOB && animationId == InfernoBlobDeathSpot.BLOB_DEATH_ANIMATION)
 			{
-				// Remove from list so the ticks overlay doesn't compete
-				// with the tile overlay.
 				infernoNpcs.removeIf(infernoNPC -> infernoNPC.getNpc() == npc);
 				blobDeathSpots.add(new InfernoBlobDeathSpot(npc.getLocalLocation()));
 			}
-
 		}
 	}
 
@@ -492,14 +506,39 @@ public class InfernoPlugin extends Plugin
 		}
 	}
 
-	private boolean isInInferno()
+	public boolean isInInferno()
 	{
 		return MiscUtilities.getPlayerRegionID() == INFERNO_REGION;
 	}
 
-	int getNextWaveNumber()
+	public List<InfernoNPC> getInfernoNpcs()
+	{
+		return infernoNpcs;
+	}
+
+	public Map<WorldPoint, Integer> getSafeSpotMap()
+	{
+		return safeSpotMap;
+	}
+
+	public InfernoNPC getCentralNibbler()
+	{
+		return centralNibbler;
+	}
+
+	public int getCurrentWaveNumber()
+	{
+		return currentWaveNumber;
+	}
+
+	public int getNextWaveNumber()
 	{
 		return currentWaveNumber == -1 || currentWaveNumber == 69 ? -1 : currentWaveNumber + 1;
+	}
+
+	public InfernoNPC.Attack getClosestAttack()
+	{
+		return closestAttack;
 	}
 
 	private void calculateUpcomingAttacks()
@@ -510,25 +549,23 @@ public class InfernoPlugin extends Plugin
 
 			if (infernoNPC.getType() == InfernoNPC.Type.ZUK && zukShieldCornerTicks == -1)
 			{
-				infernoNPC.updateNextAttack(InfernoNPC.Attack.UNKNOWN, 12); // TODO: Could be 10 or 11. Test!
+				infernoNPC.updateNextAttack(InfernoNPC.Attack.UNKNOWN, 12);
 				zukShieldCornerTicks = 0;
 			}
 
-			// Map all upcoming attacks and their priority + determine which NPC is about to attack next
 			if (infernoNPC.getTicksTillNextAttack() > 0 && isPrayerHelper(infernoNPC)
-				&& (infernoNPC.getNextAttack() != InfernoNPC.Attack.UNKNOWN
-				|| (config.indicateBlobDetectionTick() && infernoNPC.getType() == InfernoNPC.Type.BLOB
-				&& infernoNPC.getTicksTillNextAttack() >= 4)))
+					&& (infernoNPC.getNextAttack() != InfernoNPC.Attack.UNKNOWN
+					|| (config.indicateBlobDetectionTick() && infernoNPC.getType() == InfernoNPC.Type.BLOB
+					&& infernoNPC.getTicksTillNextAttack() >= 4)))
 			{
 				upcomingAttacks.computeIfAbsent(infernoNPC.getTicksTillNextAttack(), k -> new HashMap<>());
 
 				if (config.indicateBlobDetectionTick() && infernoNPC.getType() == InfernoNPC.Type.BLOB
-					&& infernoNPC.getTicksTillNextAttack() >= 4)
+						&& infernoNPC.getTicksTillNextAttack() >= 4)
 				{
 					upcomingAttacks.computeIfAbsent(infernoNPC.getTicksTillNextAttack() - 3, k -> new HashMap<>());
 					upcomingAttacks.computeIfAbsent(infernoNPC.getTicksTillNextAttack() - 4, k -> new HashMap<>());
 
-					// If there's already a magic attack on the detection tick, group them
 					if (upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).containsKey(InfernoNPC.Attack.MAGIC))
 					{
 						if (upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).get(InfernoNPC.Attack.MAGIC) > InfernoNPC.Type.BLOB.getPriority())
@@ -536,7 +573,6 @@ public class InfernoPlugin extends Plugin
 							upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).put(InfernoNPC.Attack.MAGIC, InfernoNPC.Type.BLOB.getPriority());
 						}
 					}
-					// If there's already a ranged attack on the detection tick, group them
 					else if (upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).containsKey(InfernoNPC.Attack.RANGED))
 					{
 						if (upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).get(InfernoNPC.Attack.RANGED) > InfernoNPC.Type.BLOB.getPriority())
@@ -544,27 +580,24 @@ public class InfernoPlugin extends Plugin
 							upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).put(InfernoNPC.Attack.RANGED, InfernoNPC.Type.BLOB.getPriority());
 						}
 					}
-					// If there's going to be a magic attack on the blob attack tick, pray range on the detect tick so magic is prayed on the attack tick
 					else if (upcomingAttacks.get(infernoNPC.getTicksTillNextAttack()).containsKey(InfernoNPC.Attack.MAGIC)
-						|| upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 4).containsKey(InfernoNPC.Attack.MAGIC))
+							|| upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 4).containsKey(InfernoNPC.Attack.MAGIC))
 					{
 						if (!upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).containsKey(InfernoNPC.Attack.RANGED)
-							|| upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).get(InfernoNPC.Attack.RANGED) > InfernoNPC.Type.BLOB.getPriority())
+								|| upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).get(InfernoNPC.Attack.RANGED) > InfernoNPC.Type.BLOB.getPriority())
 						{
 							upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).put(InfernoNPC.Attack.RANGED, InfernoNPC.Type.BLOB.getPriority());
 						}
 					}
-					// If there's going to be a ranged attack on the blob attack tick, pray magic on the detect tick so range is prayed on the attack tick
 					else if (upcomingAttacks.get(infernoNPC.getTicksTillNextAttack()).containsKey(InfernoNPC.Attack.RANGED)
-						|| upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 4).containsKey(InfernoNPC.Attack.RANGED))
+							|| upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 4).containsKey(InfernoNPC.Attack.RANGED))
 					{
 						if (!upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).containsKey(InfernoNPC.Attack.MAGIC)
-							|| upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).get(InfernoNPC.Attack.MAGIC) > InfernoNPC.Type.BLOB.getPriority())
+								|| upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).get(InfernoNPC.Attack.MAGIC) > InfernoNPC.Type.BLOB.getPriority())
 						{
 							upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).put(InfernoNPC.Attack.MAGIC, InfernoNPC.Type.BLOB.getPriority());
 						}
 					}
-					// If there's no magic or ranged attack on the detection tick, create a magic pray blob
 					else
 					{
 						upcomingAttacks.get(infernoNPC.getTicksTillNextAttack() - 3).put(InfernoNPC.Attack.MAGIC, InfernoNPC.Type.BLOB.getPriority());
@@ -576,7 +609,7 @@ public class InfernoPlugin extends Plugin
 					final int priority = infernoNPC.getType().getPriority();
 
 					if (!upcomingAttacks.get(infernoNPC.getTicksTillNextAttack()).containsKey(attack)
-						|| upcomingAttacks.get(infernoNPC.getTicksTillNextAttack()).get(attack) > priority)
+							|| upcomingAttacks.get(infernoNPC.getTicksTillNextAttack()).get(attack) > priority)
 					{
 						upcomingAttacks.get(infernoNPC.getTicksTillNextAttack()).put(attack, priority);
 					}
@@ -588,10 +621,11 @@ public class InfernoPlugin extends Plugin
 	private void calculateClosestAttack()
 	{
 		if (config.prayerDisplayMode() == InfernoPrayerDisplayMode.PRAYER_TAB
-			|| config.prayerDisplayMode() == InfernoPrayerDisplayMode.BOTH)
+				|| config.prayerDisplayMode() == InfernoPrayerDisplayMode.BOTH)
 		{
 			int closestTick = 999;
 			int closestPriority = 999;
+			InfernoNPC.Attack previousClosestAttack = closestAttack;
 
 			for (Integer tick : upcomingAttacks.keySet())
 			{
@@ -607,6 +641,13 @@ public class InfernoPlugin extends Plugin
 						closestTick = tick;
 					}
 				}
+			}
+
+			if (closestAttack != previousClosestAttack)
+			{
+				Prayer recommendedPrayer = attackToPrayer(closestAttack);
+				postPrayerRecommendation(recommendedPrayer);
+				lastRecommendedAttack = closestAttack;
 			}
 		}
 	}
@@ -643,7 +684,7 @@ public class InfernoPlugin extends Plugin
 							}
 
 							if (infernoNPC.canAttack(client, checkLoc)
-								|| infernoNPC.canMoveToAttack(client, checkLoc, obstacles))
+									|| infernoNPC.canMoveToAttack(client, checkLoc, obstacles))
 							{
 								if (infernoNPC.getType().getDefaultAttack() == InfernoNPC.Attack.MELEE)
 								{
@@ -666,8 +707,8 @@ public class InfernoPlugin extends Plugin
 								}
 
 								if (infernoNPC.getType().getDefaultAttack() == InfernoNPC.Attack.MAGIC
-									|| (infernoNPC.getType() == InfernoNPC.Type.BLOB
-									&& safeSpotMap.get(checkLoc) != 2 && safeSpotMap.get(checkLoc) != 4))
+										|| (infernoNPC.getType() == InfernoNPC.Type.BLOB
+										&& safeSpotMap.get(checkLoc) != 2 && safeSpotMap.get(checkLoc) != 4))
 								{
 									if (safeSpotMap.get(checkLoc) == 0)
 									{
@@ -688,8 +729,8 @@ public class InfernoPlugin extends Plugin
 								}
 
 								if (infernoNPC.getType().getDefaultAttack() == InfernoNPC.Attack.RANGED
-									|| (infernoNPC.getType() == InfernoNPC.Type.BLOB
-									&& safeSpotMap.get(checkLoc) != 3 && safeSpotMap.get(checkLoc) != 5))
+										|| (infernoNPC.getType() == InfernoNPC.Type.BLOB
+										&& safeSpotMap.get(checkLoc) != 3 && safeSpotMap.get(checkLoc) != 5))
 								{
 									if (safeSpotMap.get(checkLoc) == 0)
 									{
@@ -710,7 +751,7 @@ public class InfernoPlugin extends Plugin
 								}
 
 								if (infernoNPC.getType() == InfernoNPC.Type.JAD
-									&& infernoNPC.getNpc().getWorldArea().isInMeleeDistance(checkLoc))
+										&& infernoNPC.getNpc().getWorldArea().isInMeleeDistance(checkLoc))
 								{
 									if (safeSpotMap.get(checkLoc) == 0)
 									{
@@ -749,19 +790,16 @@ public class InfernoPlugin extends Plugin
 			{
 				int zukShieldDelta = zukShieldCurrentPosition.getX() - zukShieldLastPosition.getX();
 
-				//if zuk shield moved, update zukShieldLastNonZeroDelta to show the direction
 				if (zukShieldDelta != 0)
 				{
 					zukShieldLastNonZeroDelta = zukShieldDelta;
 				}
 
-				//reset corner ticks when the shield started to move out of the corner
 				if (zukShieldLastDelta == 0 && zukShieldDelta != 0)
 				{
 					zukShieldTicksLeftInCorner = 4;
 				}
 
-				//if zuk shield did not move, also set the negative/positive XCoords for the shield
 				if (zukShieldDelta == 0)
 				{
 					if (zukShieldLastNonZeroDelta > 0)
@@ -773,7 +811,6 @@ public class InfernoPlugin extends Plugin
 						zukShieldNegativeXCoord = zukShieldCurrentPosition.getX();
 					}
 
-					//if zukShieldCorner Ticks > 0, decrement it
 					if (zukShieldTicksLeftInCorner > 0)
 					{
 						zukShieldTicksLeftInCorner--;
@@ -788,21 +825,20 @@ public class InfernoPlugin extends Plugin
 			if (config.safespotDisplayMode() != InfernoSafespotDisplayMode.OFF)
 			{
 				if ((finalPhase && config.safespotsZukShieldAfterHealers() == InfernoZukShieldDisplayMode.LIVE)
-					|| (!finalPhase && config.safespotsZukShieldBeforeHealers() == InfernoZukShieldDisplayMode.LIVE))
+						|| (!finalPhase && config.safespotsZukShieldBeforeHealers() == InfernoZukShieldDisplayMode.LIVE))
 				{
 					drawZukSafespot(zukShield.getWorldLocation().getX(), zukShield.getWorldLocation().getY(), 0);
 				}
 
 				if ((finalPhase && config.safespotsZukShieldAfterHealers() == InfernoZukShieldDisplayMode.LIVEPLUSPREDICT)
-					|| (!finalPhase && config.safespotsZukShieldBeforeHealers() == InfernoZukShieldDisplayMode.LIVEPLUSPREDICT))
+						|| (!finalPhase && config.safespotsZukShieldBeforeHealers() == InfernoZukShieldDisplayMode.LIVEPLUSPREDICT))
 				{
-					//draw the normal live safespot
 					drawZukSafespot(zukShield.getWorldLocation().getX(), zukShield.getWorldLocation().getY(), 0);
 
 					drawZukPredictedSafespot();
 				}
 				else if ((finalPhase && config.safespotsZukShieldAfterHealers() == InfernoZukShieldDisplayMode.PREDICT)
-					|| (!finalPhase && config.safespotsZukShieldBeforeHealers() == InfernoZukShieldDisplayMode.PREDICT))
+						|| (!finalPhase && config.safespotsZukShieldBeforeHealers() == InfernoZukShieldDisplayMode.PREDICT))
 				{
 					drawZukPredictedSafespot();
 				}
@@ -813,12 +849,10 @@ public class InfernoPlugin extends Plugin
 	private void drawZukPredictedSafespot()
 	{
 		final WorldPoint zukShieldCurrentPosition = zukShield.getWorldLocation();
-		//only do this if both xcoords defined.
 		if (zukShieldPositiveXCoord != -1 && zukShieldNegativeXCoord != -1)
 		{
 			int nextShieldXCoord = zukShieldCurrentPosition.getX();
 
-			//calculate the next zuk shield position
 			for (InfernoNPC infernoNPC : infernoNpcs)
 			{
 				if (infernoNPC.getType() == InfernoNPC.Type.ZUK)
@@ -829,60 +863,46 @@ public class InfernoPlugin extends Plugin
 					{
 						if (finalPhase)
 						{
-							//if ticksTilZukAttack < 1 and finalPhase, must be due to finalPhase. don't render predicted safepot until next attack.
 							return;
 						}
 						else
 						{
-							//safe to start to render the next safespot
 							ticksTilZukAttack = 10;
 						}
 					}
 
-					//if zuk shield moving in positive direction
 					if (zukShieldLastNonZeroDelta > 0)
 					{
 						nextShieldXCoord += ticksTilZukAttack;
 
-						//nextShieldPosition appears to be past the rightmost spot, must adjust
 						if (nextShieldXCoord > zukShieldPositiveXCoord)
 						{
-							//reduce by number of ticks spent in corner
 							nextShieldXCoord -= zukShieldTicksLeftInCorner;
 
-							//nextShieldPosition is LT or equal to the rightmost spot
 							if (nextShieldXCoord <= zukShieldPositiveXCoord)
 							{
-								//shield should be at that spot
 								nextShieldXCoord = zukShieldPositiveXCoord;
 							}
 							else
 							{
-								//nextShieldPosition is right of the rightmost spot still
 								nextShieldXCoord = zukShieldPositiveXCoord - nextShieldXCoord + zukShieldPositiveXCoord;
 							}
 						}
 					}
 					else
 					{
-						//moving in negative direction
 						nextShieldXCoord -= ticksTilZukAttack;
 
-						//nextShieldPosition appears to be past the leftmost spot, must adjust
 						if (nextShieldXCoord < zukShieldNegativeXCoord)
 						{
-							//add by number of ticks spent in corner
 							nextShieldXCoord += zukShieldTicksLeftInCorner;
 
-							//nextShieldPosition is GT or equal to the leftmost spot
 							if (nextShieldXCoord >= zukShieldNegativeXCoord)
 							{
-								//shield should be at that spot
 								nextShieldXCoord = zukShieldNegativeXCoord;
 							}
 							else
 							{
-								//nextShieldPosition is left of the leftmost spot still
 								nextShieldXCoord = zukShieldNegativeXCoord - nextShieldXCoord + zukShieldNegativeXCoord;
 							}
 						}
@@ -890,7 +910,6 @@ public class InfernoPlugin extends Plugin
 				}
 			}
 
-			//draw the predicted safespot
 			drawZukSafespot(nextShieldXCoord, zukShield.getWorldLocation().getY(), 2);
 		}
 	}
@@ -960,7 +979,7 @@ public class InfernoPlugin extends Plugin
 			for (InfernoNPC checkNpc : infernoNpcs)
 			{
 				if (checkNpc.getType() != InfernoNPC.Type.NIBBLER
-					|| checkNpc.getNpc().getWorldArea().distanceTo(infernoNPC.getNpc().getWorldArea()) > 1)
+						|| checkNpc.getNpc().getWorldArea().distanceTo(infernoNPC.getNpc().getWorldArea()) > 1)
 				{
 					continue;
 				}
@@ -969,11 +988,9 @@ public class InfernoPlugin extends Plugin
 			}
 
 			if (amountInArea > bestAmountInArea
-				|| (amountInArea == bestAmountInArea && distanceToPlayer < bestDistanceToPlayer))
+					|| (amountInArea == bestAmountInArea && distanceToPlayer < bestDistanceToPlayer))
 			{
 				bestNibbler = infernoNPC;
-
-				// update tracked values
 				bestAmountInArea = amountInArea;
 				bestDistanceToPlayer = distanceToPlayer;
 			}
@@ -1025,10 +1042,6 @@ public class InfernoPlugin extends Plugin
 
 	private static int calculateNpcHp(int ratio, int health, int maxHp)
 	{
-		// See OpponentInfo Plugin
-		// Copyright (c) 2016-2018, Adam <Adam@sigterm.info>
-		// Copyright (c) 2018, Jordan Atwood <jordan.atwood423@gmail.com>
-
 		if (ratio < 0 || health <= 0 || maxHp == -1)
 		{
 			return -1;
@@ -1154,5 +1167,29 @@ public class InfernoPlugin extends Plugin
 			default:
 				return false;
 		}
+	}
+
+	public InfernoNpcPrediction getNpcPredictionEngine() { return npcPrediction; }
+	public InfernoPrayerRecommendation getPrayerRecommendationEngine() { return prayerRecommendation; }
+
+	public boolean isInTrueSafespot()
+	{
+		if (client.getLocalPlayer() == null) return false;
+		return prayerRecommendation.isInTrueSafespot(client.getLocalPlayer().getWorldLocation(), safeSpotMap);
+	}
+
+	public boolean isFlickPossible()
+	{
+		WorldPoint playerLoc = client.getLocalPlayer() != null ? client.getLocalPlayer().getWorldLocation() : null;
+		java.util.Set<InfernoNPC.Attack> incoming = prayerRecommendation.getIncomingAttacks(infernoNpcs, client, playerLoc);
+		return incoming.size() == 1 && !hasActiveBlob();
+	}
+
+	private boolean hasActiveBlob()
+	{
+		for (InfernoNPC npc : infernoNpcs)
+			if (npc.getType() == InfernoNPC.Type.BLOB)
+				return true;
+		return false;
 	}
 }

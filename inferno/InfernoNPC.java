@@ -6,10 +6,10 @@
  * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice, this
- *	list of conditions and the following disclaimer.
+ *    list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
- *	this list of conditions and the following disclaimer in the documentation
- *	and/or other materials provided with the distribution.
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
@@ -28,7 +28,6 @@ import java.awt.Color;
 import java.util.*;
 
 import net.runelite.client.plugins.kotoriutils.ReflectionLibrary;
-import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 import net.runelite.api.Client;
@@ -38,6 +37,7 @@ import net.runelite.api.Prayer;
 import net.runelite.api.coords.WorldArea;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.plugins.kotoriutils.rlapi.WorldAreaExtended;
+
 import static net.runelite.client.plugins.inferno.InfernoPlugin.JALTOK_JAD_MAGE_ATTACK;
 import static net.runelite.client.plugins.inferno.InfernoPlugin.JALTOK_JAD_RANGE_ATTACK;
 import static net.runelite.client.plugins.inferno.InfernoPlugin.JAL_AK_MAGIC_ATTACK;
@@ -54,25 +54,25 @@ import static net.runelite.client.plugins.inferno.InfernoPlugin.JAL_ZEK_MELEE_AT
 import static net.runelite.client.plugins.inferno.InfernoPlugin.TZKAL_ZUK;
 import org.apache.commons.lang3.ArrayUtils;
 
-class InfernoNPC
+public class InfernoNPC
 {
-	@Getter(AccessLevel.PACKAGE)
+	@Getter
 	private NPC npc;
-	@Getter(AccessLevel.PACKAGE)
+	@Getter
 	private Type type;
-	@Getter(AccessLevel.PACKAGE)
+	@Getter
 	private Attack nextAttack;
-	@Getter(AccessLevel.PACKAGE)
-	@Setter(AccessLevel.PACKAGE)
+	@Getter
+	@Setter
 	private int ticksTillNextAttack;
-	@Getter(AccessLevel.PACKAGE)
+	@Getter
 	private int idleTicks;
 	private int lastAnimation;
 	private boolean lastCanAttack;
 	//0 = not in LOS, 1 = in LOS after move, 2 = in LOS
 	private final Map<WorldPoint, Integer> safeSpotCache;
 
-	InfernoNPC(NPC npc)
+	public InfernoNPC(NPC npc)
 	{
 		this.npc = npc;
 		this.type = Type.typeFromId(npc.getId());
@@ -84,19 +84,19 @@ class InfernoNPC
 		this.safeSpotCache = new HashMap<>();
 	}
 
-	void updateNextAttack(Attack nextAttack, int ticksTillNextAttack)
+	public void updateNextAttack(Attack nextAttack, int ticksTillNextAttack)
 	{
 		this.idleTicks = 0;
 		this.nextAttack = nextAttack;
 		this.ticksTillNextAttack = ticksTillNextAttack;
 	}
 
-	private void updateNextAttack(Attack nextAttack)
+	public void updateNextAttack(Attack nextAttack)
 	{
 		this.nextAttack = nextAttack;
 	}
 
-	boolean canAttack(Client client, WorldPoint target)
+	public boolean canAttack(Client client, WorldPoint target)
 	{
 		if (safeSpotCache.containsKey(target))
 		{
@@ -105,7 +105,7 @@ class InfernoNPC
 
 		boolean hasLos = new WorldArea(target, 1, 1).hasLineOfSightTo(client.getTopLevelWorldView(), this.getNpc().getWorldArea());
 		boolean hasRange = this.getType().getDefaultAttack() == Attack.MELEE ? this.getNpc().getWorldArea().isInMeleeDistance(target)
-			: this.getNpc().getWorldArea().distanceTo(target) <= this.getType().getRange();
+				: this.getNpc().getWorldArea().distanceTo(target) <= this.getType().getRange();
 
 		if (hasLos && hasRange)
 		{
@@ -115,7 +115,7 @@ class InfernoNPC
 		return hasLos && hasRange;
 	}
 
-	boolean canMoveToAttack(Client client, WorldPoint target, List<WorldPoint> obstacles)
+	public boolean canMoveToAttack(Client client, WorldPoint target, List<WorldPoint> obstacles)
 	{
 		if (safeSpotCache.containsKey(target))
 		{
@@ -173,7 +173,7 @@ class InfernoNPC
 
 			boolean hasLos = new WorldArea(target, 1, 1).hasLineOfSightTo(client.getTopLevelWorldView(), predictedWorldArea);
 			boolean hasRange = this.getType().getDefaultAttack() == Attack.MELEE ? predictedWorldArea.isInMeleeDistance(target)
-				: predictedWorldArea.distanceTo(target) <= this.getType().getRange();
+					: predictedWorldArea.distanceTo(target) <= this.getType().getRange();
 
 			if (hasLos && hasRange)
 			{
@@ -190,7 +190,7 @@ class InfernoNPC
 		return new WorldArea(lastPlayerLocation, 1, 1).hasLineOfSightTo(client.getTopLevelWorldView(), this.getNpc().getWorldArea());
 	}
 
-	void gameTick(Client client, WorldPoint lastPlayerLocation, boolean finalPhase, int ticksSinceFinalPhase)
+	public void gameTick(Client client, WorldPoint lastPlayerLocation, boolean finalPhase, int ticksSinceFinalPhase)
 	{
 		int npcAnimationId = ReflectionLibrary.getNpcAnimationId(this.getNpc());
 		safeSpotCache.clear();
@@ -260,7 +260,7 @@ class InfernoNPC
 				case BAT:
 					// Range + LOS check for bat because it suffers from the defense animation bug, also dont activate on "stand" animation
 					if (this.canAttack(client, client.getLocalPlayer().getWorldLocation())
-						&& npcAnimationId != JAL_MEJRAH_STAND && npcAnimationId != -1)
+							&& npcAnimationId != JAL_MEJRAH_STAND && npcAnimationId != -1)
 					{
 						this.updateNextAttack(this.getType().getDefaultAttack(), this.getType().getTicksAfterAnimation());
 					}
@@ -271,8 +271,8 @@ class InfernoNPC
 					// For the meleer, ranger and mage the attack animation is always prioritized so only check for those
 					// Normal attack animation, doesnt suffer from defense animation bug. Activate usual attack cycle
 					if (npcAnimationId == JAL_IMKOT
-						|| npcAnimationId == JAL_XIL_RANGE_ATTACK || npcAnimationId == JAL_XIL_MELEE_ATTACK
-						|| npcAnimationId == JAL_ZEK_MAGE_ATTACK || npcAnimationId == JAL_ZEK_MELEE_ATTACK)
+							|| npcAnimationId == JAL_XIL_RANGE_ATTACK || npcAnimationId == JAL_XIL_MELEE_ATTACK
+							|| npcAnimationId == JAL_ZEK_MAGE_ATTACK || npcAnimationId == JAL_ZEK_MELEE_ATTACK)
 					{
 						this.updateNextAttack(this.getType().getDefaultAttack(), this.getType().getTicksAfterAnimation());
 					}
@@ -299,7 +299,7 @@ class InfernoNPC
 
 		//Blob prayer detection
 		if (this.getType() == Type.BLOB && this.getTicksTillNextAttack() == 3
-			&& client.getLocalPlayer().getWorldLocation().distanceTo(this.getNpc().getWorldArea()) <= Type.BLOB.getRange())
+				&& client.getLocalPlayer().getWorldLocation().distanceTo(this.getNpc().getWorldArea()) <= Type.BLOB.getRange())
 		{
 			Attack nextBlobAttack = Attack.UNKNOWN;
 			if (client.isPrayerActive(Prayer.PROTECT_FROM_MISSILES))
@@ -320,36 +320,35 @@ class InfernoNPC
 		lastCanAttack = this.canAttack(client, client.getLocalPlayer().getWorldLocation());
 	}
 
-	@Getter(AccessLevel.PACKAGE)
-	enum Attack
+	public enum Attack
 	{
 		MELEE(Prayer.PROTECT_FROM_MELEE,
-			Color.ORANGE,
-			Color.RED,
-			new int[]{
-				JAL_NIB,
-				JAL_AK_MELEE_ATTACK,
-				JAL_IMKOT,
-				JAL_XIL_MELEE_ATTACK,
-				JAL_ZEK_MELEE_ATTACK, //TODO: Yt-HurKot attack animation
-			}),
+				Color.ORANGE,
+				Color.RED,
+				new int[]{
+						JAL_NIB,
+						JAL_AK_MELEE_ATTACK,
+						JAL_IMKOT,
+						JAL_XIL_MELEE_ATTACK,
+						JAL_ZEK_MELEE_ATTACK, //TODO: Yt-HurKot attack animation
+				}),
 		RANGED(Prayer.PROTECT_FROM_MISSILES,
-			Color.GREEN,
-			new Color(0, 128, 0),
-			new int[]{
-				JAL_MEJRAH,
-				JAL_AK_RANGE_ATTACK,
-				JAL_XIL_RANGE_ATTACK,
-				JALTOK_JAD_RANGE_ATTACK,
-			}),
+				Color.GREEN,
+				new Color(0, 128, 0),
+				new int[]{
+						JAL_MEJRAH,
+						JAL_AK_RANGE_ATTACK,
+						JAL_XIL_RANGE_ATTACK,
+						JALTOK_JAD_RANGE_ATTACK,
+				}),
 		MAGIC(Prayer.PROTECT_FROM_MAGIC,
-			Color.CYAN,
-			Color.BLUE,
-			new int[]{
-				JAL_AK_MAGIC_ATTACK,
-				JAL_ZEK_MAGE_ATTACK,
-				JALTOK_JAD_MAGE_ATTACK
-			}),
+				Color.CYAN,
+				Color.BLUE,
+				new int[]{
+						JAL_AK_MAGIC_ATTACK,
+						JAL_ZEK_MAGE_ATTACK,
+						JALTOK_JAD_MAGE_ATTACK
+				}),
 		UNKNOWN(null, Color.WHITE, Color.GRAY, new int[]{});
 
 		private final Prayer prayer;
@@ -365,7 +364,27 @@ class InfernoNPC
 			this.animationIds = animationIds;
 		}
 
-		static Attack attackFromId(int animationId)
+		public Prayer getPrayer()
+		{
+			return prayer;
+		}
+
+		public Color getNormalColor()
+		{
+			return normalColor;
+		}
+
+		public Color getCriticalColor()
+		{
+			return criticalColor;
+		}
+
+		public int[] getAnimationIds()
+		{
+			return animationIds;
+		}
+
+		public static Attack attackFromId(int animationId)
 		{
 			for (Attack attack : Attack.values())
 			{
@@ -379,8 +398,7 @@ class InfernoNPC
 		}
 	}
 
-	@Getter(AccessLevel.PACKAGE)
-	enum Type
+	public enum Type
 	{
 		NIBBLER(new int[]{NpcID.JALNIB}, Attack.MELEE, 4, 99, 100),
 		BAT(new int[]{NpcID.JALMEJRAH}, Attack.RANGED, 3, 4, 7),
@@ -408,7 +426,32 @@ class InfernoNPC
 			this.priority = priority;
 		}
 
-		static Type typeFromId(int npcId)
+		public int[] getNpcIds()
+		{
+			return npcIds;
+		}
+
+		public Attack getDefaultAttack()
+		{
+			return defaultAttack;
+		}
+
+		public int getTicksAfterAnimation()
+		{
+			return ticksAfterAnimation;
+		}
+
+		public int getRange()
+		{
+			return range;
+		}
+
+		public int getPriority()
+		{
+			return priority;
+		}
+
+		public static Type typeFromId(int npcId)
 		{
 			for (Type type : Type.values())
 			{
@@ -422,4 +465,3 @@ class InfernoNPC
 		}
 	}
 }
-
